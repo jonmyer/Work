@@ -1,0 +1,109 @@
+<#
+
+.SYNOPSIS 
+
+
+.DESCRIPTION 
+The following script can be used to display a CSV file with the first row being a header.
+It counts the number of items or comma separated objects and performs a table output.
+
+.EXAMPLE 
+.\TableFunction.ps1
+
+Output on Screen 
+Example of 
+Drive FreeSpace Totalspace
+G:    71        015.76 GB 
+H:    13.40 GB  200.00 GB 
+L:    71        015.76 GB 
+N:    40.83 GB  59.51 GB  
+P:    4.89 GB   12.00 GB  
+W:    5.07 GB   60.00 GB  
+X:    41.82 GB  59.51 GB  
+
+
+.NOTES 
+insert the following into code into an existing script to run the function
+script must exist in the same directory
+. .\Tablefunction.ps1
+
+.LINK 
+http://www.
+
+#>
+
+function table{
+    param($files,$location)
+
+$file = (gc "$files")
+$tcount = $file.count
+write-host "Total Count: $tcount"
+
+##labels the table name
+$tname = "Table Output"
+$TableName = $tname.Caption
+
+##creates new table object and name
+$table = New-Object system.Data.DataTable “$TableName”
+
+##change $file[0] to 1 if including a header
+[string]$column = $file[0]
+#write-host "Column: $column"
+$spcolumn = $column.split(",")
+$cspcolumn = $spcolumn.count
+#$cspcolumn
+
+$j = 0
+
+##reading columns
+for($i=1; $i -le $cspcolumn;$i++){
+
+    $c = $spcolumn[$j]
+
+    #write-host "Column: $c"
+    $col = New-Object system.Data.DataColumn "$c",([string])
+    $table.Columns.Add($col)
+
+    ##adds/increments the column
+    $j++
+}
+##change $file[1..$tcount] to $file[2..$tcount] if including a header
+    $file = $file[1..$tcount]
+    #$file
+    
+    foreach($f in $file){
+
+        ##sets the starting point for the line
+        $b = 0
+
+        [string]$dataline = $f
+        #write-host "Line: $f"
+        $spline = $dataline.split(",")
+        $cspline = $spline.count
+        #$cspline
+
+        $row = $table.NewRow()
+
+            for($m=1; $m -le $cspline;$m++){
+                
+                $name = $spcolumn[$b]
+                $row."$name" = ($spline[$b])
+                
+                ##increments the line and column
+                $b++
+            }
+        ##adds the rows to the table
+        $table.Rows.Add($row)
+    }
+
+##sending output to screen and file
+$table | format-table -auto
+$table > "$location\output.txt"
+}
+
+###insert the following into code to run this function
+#. .\Tablefunction.ps1
+
+$file = read-host "Enter full file path"
+$location = get-location
+table $file $location

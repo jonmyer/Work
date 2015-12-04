@@ -1,0 +1,522 @@
+<#
+
+.SYNOPSIS 
+
+
+.DESCRIPTION 
+The following script can be used against vcenter to analyze capacity for N+1 failover.
+
+.EXAMPLE 
+.\wcapacity-2.ps1 for normal use
+.\wcapacity-2.ps1 0 wave -- to include a wave migration csv file
+.\wcapactiy-2.ps1 0 wave builds -- to include wave & build csv file
+.\wcapactiy-2.ps1 debug -- for troubleshooting
+
+Output on Screen 
+
+
+.NOTES 
+Running the script will look at each vcenter cluster and perform a comparision if each cluster has enough
+capacity to handle a failure. Also, a comma-delimited file can be imported to handle WAVE or server migrations.
+
+.LINK 
+http://www.
+
+#>
+
+
+
+
+$debug = $args[0]
+$wavearg = $args[1]
+$platbuilds = $args[2]
+$scenario = $args[3]
+
+$path = "c:\wave"
+##Sets the memory threshold hold alert or parameter
+$memthreshold = 85
+$vcenter = ""
+
+##version 1
+
+if($debug -like "*debug*"){
+    $DebugPreference = "SilentlyContinue"
+    Write-debug "****Debug Mode is turned ON****"
+    $debug = 1
+}else{
+    set-PSDebug -off
+    $DebugPreference = "SilentlyContinue"
+    write-output = "****Debug Mode is turned OFF****"
+}
+
+#supressed the host output when creating the file/checks if they exists and removes them
+&{
+#if ((Test-Path -path "$path") -ne $False){Remove-Item "$path" -rec; new-item -path "$path" -itemtype directory;}else{new-item -path "$path" -itemtype directory}
+#if ((Test-Path -path "c:\null.txt") -ne $False){Remove-Item "c:\null.txt" -force}
+if ((Test-Path -path "$path\temp1.txt") -ne $False){Remove-Item "$path\temp1.txt" -force}
+if ((Test-Path -path "$path\btemp.txt") -ne $False){Remove-Item "$path\btemp.txt" -force}
+} > $null #this suppresses the output to the console
+
+###function section
+function reset{
+$hostcpu,$hostmpercentage,$hostmusage,$threshold,$table = ""
+}
+
+function builds{
+    param($clusterlist)
+
+    $out = "`n`n"
+    $out >> $clusterc
+
+    $out = "`n`n##### CURRENT BUILD INFO #####"
+    $out >> $clusterc
+    
+    ##setting the variables to null
+    $bcpu,$bmem,$buildsplit,$c,$bcount = ""
+    
+    if((Test-Path -path "$path\btemp.txt") -ne $False){
+        $buildfile = gc "$path\btemp.txt"
+        write-host "GC Build file: $buildfile"
+        $buildfile > "$path\btemp.csv"
+    }else{
+        $buildfile = read-host "`nEnter build CSV file name"
+        $buildfile > "$path\btemp.txt"
+    }
+    write-host "Build file: $path\$buildfile.csv" 
+    
+    ## if a cluster isn't provided then it will go through each cluster
+    if($clusterlist.length -le 0){
+        $clist = get-cluster | foreach {$_.name}
+        $clistcount = $clist.count
+    }else{
+        $clist = $clusterlist
+    }## end of if(!($cluster -ne $null))
+        
+    foreach($c in $clist){
+            
+        $buildfile = gc "$path\$buildfile.csv" | select-string -pattern "$c"
+        write-host "`nBuildfile cluster search: $c"
+                           
+        foreach($b in $buildfile){
+                    
+            [string]$b = $b
+
+            $buildsplit = $b.split(",")
+            [int]$bcount += 1
+            [int]$bcpu += [int]$buildsplit[3]
+            [int]$bmem += [int]$buildsplit[4]
+        }## end of foreach($w in $buildfile)
+        
+        if(($bcpu -le 0) -and ($bmem -le 0)){
+            $out = "`tBuild: No Server Builds Scheduled"
+            write-host -fore green "$out"
+            $out >> $clusterc
+        }else{
+            $out = "`nPlatform Builds"
+            write-host "$out"
+            $out >> $clusterc
+            $out = "`tCluster: $c ==> Total Servers: $bcount ==> Total Memory: $bmem ==> Total CPU: $bcpu"
+            write-host -fore green "$out"
+            $out >> $clusterc
+        }
+
+    }## end of foreach($c in $clist) 
+
+    $out = "`n`n##### END OF BUILD INFO #####"
+    $out >> $clusterc
+
+}
+
+function scenario{
+    param($cluster)
+
+$swave = gc "$path\$wavefile.csv"
+$cswave = ($swave | measure-object -line).lines
+
+if($debug){write-host "Scenario wave count: $cswave"}
+
+$sbuild = gc "$path\$buildfile.csv"
+$csbuild = ($sbuild | measure-object -line).lines
+
+if($debug){write-host "Scenario build count: $csbuild"}
+
+    for($i=0; $i -le $cswave; $i++){
+
+        
+
+
+
+    }
+
+
+}
+
+###this function only runs when provided the arg during runtime
+function wave{
+    param($clusterlist)
+    
+    $out = "`n`n"
+    $out >> $clusterc
+    $out = "###### WAVE INFO #####"
+    $out >> $clusterc
+    
+    if((Test-Path -path "$path\temp1.txt") -ne $False){
+        $wavefile = gc "$path\temp1.txt"
+        write-host "GC wave file: $wavefile"
+        $wavefile > "$path\temp1.csv"
+    }else{
+        $wavefile = read-host "`nEnter wave CSV file name"
+        $wavefile > "$path\temp1.txt"
+    }
+    write-host "Wave file: $path\$wavefile.csv" 
+    
+    ## if a cluster isn't provided then it will go through each cluster
+    if(!($clusterlist -ne $null)){
+        $clist = get-cluster | foreach {$_.name}
+        $clistcount = $clist.count
+    }else{
+        $clist = $clusterlist
+    }## end of if(!($cluster -ne $null))
+    
+        for($i = 0;$i -le 8; $i++){
+        
+            ##setting the variables to null
+            $wcpu,$wmem,$wavesplit,$wcount = ""
+            
+            $wavenum = "wave"+ $i
+            
+            ##searching for each wave within the wave.csv file      
+            $wavefile1 = Get-Content "$path\$wavefile.csv" | Select-String -Simple "$wavenum" 
+            
+            #if the wavefile exists then do something
+            if(!($wavefile1 -eq $null)){
+            
+            foreach($c in $clist){
+            
+                ##seaching the wave file for cluster strings
+                $wavefile1 = $wavefile1 | select-string -simple "$c"
+                           
+                foreach($w in $wavefile1){
+
+                    [string]$w = $w
+
+                    $wavesplit = $w.split(",")
+                    [int]$wcount += 1
+                    [int]$wcpu += [int]$wavesplit[3]
+                    [int]$wmem += [int]$wavesplit[4]
+                }## end of foreach($w in $wavefile1)
+                
+                
+               if(($wcpu -le 0) -and ($wmem -le 0)){
+                   $out = "`tWave: No Servers Allocated for $wavenum"
+                   write-host -fore green "$out"
+                   $out >> $clusterc
+               }else{
+                   $out = "`nWave: $wavenum"
+                   write-host -fore green "$out"
+                   $out >> $clusterc
+                   $out = "`tCluster: $c ==> Total Servers: $wcount ==> Total Memory: $wmem ==> Total CPU: $wcpu"
+                   write-host -fore green "$out"
+                   $out >> $clusterc
+               }
+               
+             }## end of foreach($c in $clist)       
+           }## end of if(!($wavefile1 -eq $null))
+        }## end of for($i = 0;$i -le 8; $i++)
+        
+    $out = "`n`n#### END OF WAVE INFO ###"
+    $out >> $clusterc
+}## end of wave function
+
+function datacapacity{
+    param($cluster)
+
+##datastore cluster capacity
+    $out = "`n`n"
+    write-host "$out"
+    $out >> $clusterc
+    $out = "###### $cluster Storage Capacity ######"
+    write-host "$out"
+    $out >> $clusterc    
+
+    $dstore = get-datastorecluster "*$cluster*"
+    $dname = $dstore.name
+    $dfree = ("{0:N2}" -f $dstore.freespaceGB)
+    $dcap = ("{0:N2}" -f $dstore.capacityGB)
+    
+    $out = "`t$dname ==> Total Capcity: $dcap GB ==> Total Free: $dfree GB"
+    write-host "$out"
+    $out >> $clusterc
+    
+    $out = "### End of $cluster Storage Capacity ###"
+    write-host "$out"
+    $out >> $clusterc  
+        
+}
+
+function dtable{
+    param($cap)
+    
+$vmhosts = gc "$path\$cluster.txt"
+
+$table = ""
+
+##table out      
+$ServerName = "ESXHOSTS-FAILS"
+$TableName = $Servername.Caption
+
+$table = New-Object system.Data.DataTable “$TableName”
+$col1 = New-Object system.Data.DataColumn Host,([string])
+$col2 = New-Object system.Data.DataColumn TotalAvailable,([int])
+$col3 = New-Object system.Data.DataColumn AllocatedMem,([int])
+$col4 = New-Object system.Data.DataColumn Threshold,([decimal])
+        
+##adds the columns to the table
+$table.columns.add($col1)
+$table.columns.add($col2)
+$table.columns.add($col3)
+$table.columns.add($col4)
+
+##end of table
+
+    foreach($esxhost in $vmhosts){
+
+        $esxsplit = ""
+
+        $esxsplit = $esxhost.split(",")
+        $hostname1 = $esxsplit[0]
+        $hostallocatedmem = $esxsplit[3]
+        $hosttotalmem = $esxsplit[4]
+        $hostmthreshold = $esxsplit[6]
+
+        ##table info##
+        $row = $table.NewRow()
+        $row.Host = ($hostname1)
+        $row.TotalAvailable = ($hostallocatedmem)
+        $row.AllocatedMem = ($hosttotalmem)
+        $row.Threshold = ($hostmthreshold)
+        $table.Rows.Add($row)
+
+    }
+
+$table | format-table -auto > "c:\temp.txt"
+$table = gc "c:\temp.txt"
+$table
+
+}
+
+function hostcapacity{
+
+    ##connect to vcenter
+    if($vcenter -eq 0){connect-viserver "win-vcenter-001"
+        write-host "Connecting to win-vcenter-001"
+    }else{
+        $vcenter = connect-viserver "win-vcenter-001"
+        #$vcenter = read-host "Enter vCenter"
+        connect-viserver "$vcenter"
+    }## end of connect-viserver
+
+    $clusterc = "$path\$vcenter-capacity.txt"
+    $vcenter > $clusterc
+
+    ##lists of clusters
+    $clusters = get-cluster | foreach {$_.name}
+
+    ##display lists
+    $clusters
+
+    ##which cluster to perform capacity analysis
+    ##uncomment to run a specific cluster
+    $clusterlist = read-host "`nSelect Cluster"
+
+    ##checks to see if there is a value for clusters
+    if($clusterlist.length -le 0){
+        $clusterlist = $clusters
+        write-host "Processing clusters: $clusterlist"
+    }## end of ($clusterlist.length -le 0)
+
+    foreach ($cluster in $clusterlist){
+
+    ##list of esx hosts
+    $esxhost = get-cluster $cluster | get-vmhost
+    $out = "`n`n"
+    $out + $out >> $clusterc
+    $cluster >> $clusterc
+
+    $cap = "$path\$cluster-Capacity.txt"
+    $cluster > $cap
+
+    ##creates a files for cluster output
+    if((test-path -path "$path\$cluster.txt") -ne $false){Remove-item "$path\$cluster.txt"}
+    #if((test-path -path "$cap") -ne $false){Remove-item "$cap"}
+
+    $flist = ""
+
+    ##displays a list of esx hosts and capacity
+    foreach($e in $esxhost){
+                $hostmusage = ""
+                
+                ###total memory allocated to vm guests NOT used memory
+                $vms = get-vmhost $e | get-vm | foreach {$_.MemoryGB}
+                
+                    ##calculates the total memory used
+                    foreach($vm in $vms){
+                    [int]$hostmusage = [int]$hostmusage + [int]$vm
+                    }
+                    
+                #$info = get-vmhost $hosts
+                $hostm = $e.memorytotalgb
+                $hostm = ("{0:N0}" -f $hostm)
+                $hostcpu = $e.numcpu
+                $cpuspeed = $e.cputotalmhz
+                $hostmused = $e.MemoryUsageGB
+                $hostmused = ("{0:N2}" -f $hostmused)
+                $hosthyper = $e.hyperthreadingactive
+                $hostmpercentage = "{0:N2}" -f (($hostmusage * 100) / $hostm)
+                $hostmusage = ("{0:N2}" -f $hostmusage)
+                $cputotal = ("{0:N0}" -f [int]($cpuspeed / $hostcpu)) | ForEach-Object { $_ -replace ",", "." }
+                $threshold = ((85/100)*$hostm)
+                $threshold = ("{0:N2}" -f $threshold)
+                
+                $eout = "$e,$hostcpu,$cputotal,$hostm,$hostmusage,$hostmpercentage,$threshold,$hostmused"
+                $eout >> "$path\$cluster.txt"
+                
+                ##list of esxhost for failover/patching
+                $flist += "`n$e"
+                            
+    }
+
+    ##failure list of just the host names
+    write-host "`n`nCluster: $cluster"
+    write-host "List of ESX Hosts: $flist"
+
+    ##gets a lists of ESX servers and how many there are
+    $esxlist = gc "$path\$cluster.txt"
+    $esxcount = ($esxlist | measure-object -line).lines
+
+    ##resets variables
+    reset
+    
+    for($j = 0; $j -lt $esxcount;$j++){
+
+        $esxhost,$esxlist,$hosttotalmem,$allocatedmem,$out,$hostcpu,$hostmused,$remainder,$sub,$sub1 = ""
+        $remainder = 0
+        
+        $esxlist = gc "$path\$cluster.txt"
+        $esxhost = $esxlist[0]
+        $esxsplit = $esxhost.split(",")
+        $hostname = $esxsplit[0]
+        [int]$hosttotalmem = $esxsplit[3]
+        [int]$allocatedmem = $esxsplit[4]
+        [int]$hostthres = $esxsplit[6]
+        [int]$hostmused = $esxsplit[7]
+
+        $out = "`n`n"
+        $out >> $cap
+        $out = "`n`n#### $hostname FAILS --> Allocated Mem: $allocatedmem --> Total Available: $hosttotalmem --> Currently Used Mem: $hostmused --> Threshold: $hostthres ###"
+        write-host "$out"
+        $out >> $clusterc
+        $out >> $cap
+        
+        $remainder = $allocatedmem
+        
+            for($i=1; $i -lt $esxcount;$i++){
+            
+                $esxsplit1,$esxtemp,$newmem,$sub,$sub1 = ""
+                $esxtemp = gc "$path\$cluster.txt"
+                ##returns a specific line number
+                $et = $esxtemp[$i]
+                $esxsplit1 = $esxtemp[$i].split(",")
+                
+                ###returns the temporary
+                $hostname1 = $esxsplit1[0]
+                [int]$hostcpu = $esxsplit1[1]
+                $hostcpumhz = $esxsplit1[2]
+                [int]$hosttotalmem = $esxsplit1[3]
+                [int]$hostallocatedmem = $esxsplit1[4]
+                [int]$hostmthreshold = $esxsplit1[6]
+                
+                if($debug){write-host "Allocated Memory: $allocatedmem"}
+                
+                ###checks the current host's memory to see if it can failover to other hosts
+                ###Takes the current ESX host's allocated memory and checks it against the threshold, if less then it attempts to add more
+
+                if($remainder -gt 0){
+
+                    if($hostallocatedmem -lt $hostmthreshold){
+                    ###need to change this - only do this once
+                    
+                        [int]$sub = [int]($hostmthreshold - $hostallocatedmem)
+                        
+                        if($remainder -lt $sub){
+                            [int]$newmem = $remainder + $hostallocatedmem
+                            $sub1 = 0
+                            $out = "HOST: $hostname1 --> Allocated Mem: $hostallocatedmem --> Total Available: $hosttotalmem --> Threshold: $hostmthreshold --> NEW MEM: $remainder --> New Allocated Total: $newmem --> Remainder: $sub1"
+                            write-host "$out"
+                            $out >> $cap
+                            $out >> $clusterc
+
+                        }else{
+                            [int]$sub1 = $remainder - $sub
+                            [int]$newmem = $hostallocatedmem + $sub
+                            $out = "NEW MEMORY THRESHOLD - HOST: $hostname1 --> Allocated Mem: $hostallocatedmem --> Total Mem: $hosttotalmem --> Threshold: $hostmthreshold --> NEW MEM: $remainder --> New Allocated Total: $newmem --> Remainder: $sub1"
+                            write-host -Fore red "$out"
+                            $out >> $cap
+                            $out >> $clusterc
+                        }
+                        
+                        [int]$remainder = $sub1
+                        
+                    }else{
+                        $out = "AT MEMORY THRESHOLD - HOST: $hostname1 - THRESHOLD: $hostmthreshold - Allocated: $hostallocatedmem"
+                        write-host -Fore red "$out"
+                        $out >> $cap
+                        $out >> $clusterc
+                    }
+
+                }else{
+                    $out = "HOST: $hostname1 --> Allocated Mem: $hostallocatedmem -- > Total Available: $hosttotalmem --> Threshold: $hostmthreshold"
+                    write-host "$out"
+                    $out >> $cap
+                    $out >> $clusterc
+                }
+                
+                 
+            }##end of for($i=1; $i -lt $esxcount;$i++)
+            
+        $out = "Total Amount of Memory that won't fit because of failed server: $remainder"
+        write-host "### $out ###"
+        $out >> $clusterc
+        $out >> $cap
+        
+        ##takes the first line of the cluster file and moves it to the end
+        gc "$path\$cluster.txt" | select-object -Skip 1 | sc "$path\temp.txt"
+        move "$path\temp.txt" "$path\$cluster.txt" -force
+        $esxhost | add-content "$path\$cluster.txt"
+
+    }## end of for($j = 0; $j -lt $esxcount;$j++)
+    
+    ##
+    dtable
+    
+    ##current datastore capacity
+    datacapacity $cluster
+    
+        ###wave planning
+        if($wavearg -like "*wave*"){
+            wave $cluster
+        }
+        ###end of wave planning
+        
+        ###platform builds
+        if($platbuilds -like "*builds*"){
+            builds $cluster
+        }## end of platform builds
+
+    }
+    
+disconnect-viserver -server * -confirm:$false
+    
+}## end of capacity
+
+hostcapacity
